@@ -1,5 +1,7 @@
 #include "flightlib/bridges/unity_bridge.hpp"
 
+#include <filesystem>
+
 namespace flightlib {
 
 // constructor
@@ -31,12 +33,13 @@ bool UnityBridge::initializeConnections() {
   sub_.subscribe("");
 
   logger_.info("Initializing ZMQ connections done!");
+
   return true;
 }
 
 bool UnityBridge::connectUnity(const SceneID scene_id) {
   Scalar time_out_count = 0;
-  Scalar sleep_useconds = 0.2 * 1e5;
+  Scalar sleep_useconds = 0.5 * 1e5;
   setScene(scene_id);
   // try to connect unity
   logger_.info("Trying to Connect Unity.");
@@ -85,7 +88,7 @@ bool UnityBridge::sendInitialSettings(void) {
   // send message without blocking
   pub_.send(msg, true);
   return true;
-};
+}
 
 bool UnityBridge::handleSettings(void) {
   // create new message object
@@ -102,7 +105,7 @@ bool UnityBridge::handleSettings(void) {
     done = json::parse(metadata_string).at("ready").get<bool>();
   }
   return done;
-};
+}
 
 bool UnityBridge::getRender(const FrameID frame_id) {
   pub_msg_.frame_id = frame_id;
@@ -113,11 +116,14 @@ bool UnityBridge::getRender(const FrameID frame_id) {
     pub_msg_.vehicles[idx].rotation = quaternionRos2Unity(quad_state.q());
   }
 
-  for (size_t idx = 0; idx < pub_msg_.objects.size(); idx++) {
-    std::shared_ptr<StaticObject> gate = static_objects_[idx];
-    pub_msg_.objects[idx].position = positionRos2Unity(gate->getPosition());
-    pub_msg_.objects[idx].rotation = quaternionRos2Unity(gate->getQuaternion());
+  for (size_t idx = 0; idx < pub_msg_.dynamic_objects.size(); idx++) {
+    std::shared_ptr<UnityObject> object = dynamic_objects_[idx];
+    pub_msg_.dynamic_objects[idx].position =
+      positionRos2Unity(object->getPos());
+    pub_msg_.dynamic_objects[idx].rotation =
+      quaternionRos2Unity(object->getQuat());
   }
+
 
   // create new message object
   zmqpp::message msg;
@@ -127,8 +133,7 @@ bool UnityBridge::getRender(const FrameID frame_id) {
   json json_msg = pub_msg_;
   msg << json_msg.dump();
   // send message without blocking
-  pub_.send(msg, true);
-  return true;
+  return pub_.send(msg, true);
 }
 
 bool UnityBridge::setScene(const SceneID& scene_id) {
@@ -138,6 +143,20 @@ bool UnityBridge::setScene(const SceneID& scene_id) {
   }
   // logger_.info("Scene ID is set to %d.", scene_id);
   settings_.scene_id = scene_id;
+  return true;
+}
+
+void UnityBridge::setRenderOffset(const Ref<Vector<3>> render_offset) {
+  settings_.render_offset = positionRos2Unity(render_offset);
+}
+
+bool UnityBridge::setObjectCSV(const std::string& csv_file) {
+  if (!(file_exists(csv_file))) {
+    logger_.error("Configuration file %s does not exists.", csv_file);
+    return false;
+  }
+  // logger_.info("Scene ID is set to %d.", scene_id);
+  settings_.object_csv = csv_file;
   return true;
 }
 
@@ -183,29 +202,65 @@ bool UnityBridge::addQuadrotor(std::shared_ptr<Quadrotor> quad) {
   return true;
 }
 
-bool UnityBridge::addStaticObject(std::shared_ptr<StaticObject> static_object) {
+bool UnityBridge::addStaticObject(std::shared_ptr<UnityObject> unity_object) {
   Object_t object_t;
-  object_t.ID = static_object->getID();
-  object_t.prefab_ID = static_object->getPrefabID();
-  object_t.position = positionRos2Unity(static_object->getPosition());
-  object_t.rotation = quaternionRos2Unity(static_object->getQuaternion());
-  object_t.size = scalarRos2Unity(static_object->getSize());
+  object_t.ID = unity_object->getID();
+  object_t.prefab_ID = unity_object->getPrefabID();
+  object_t.position = positionRos2Unity(unity_object->getPos());
+  object_t.rotation = quaternionRos2Unity(unity_object->getQuat());
+  object_t.size = scalarRos2Unity(unity_object->getScale());
 
-  static_objects_.push_back(static_object);
-  settings_.objects.push_back(object_t);
-  pub_msg_.objects.push_back(object_t);
+  // add static objectc
+  static_objects_.push_back(unity_object);
+  settings_.static_objects.push_back(object_t);
+  pub_msg_.static_objects.push_back(object_t);
   //
   return true;
 }
 
-bool UnityBridge::handleOutput() {
-  // create new message object
+bool UnityBridge::addDynamicObject(std::shared_ptr<UnityObject> unity_object) {
+  Object_t object_t;
+  object_t.ID = unity_object->getID();
+  object_t.prefab_ID = unity_object->getPrefabID();
+  object_t.position = positionRos2Unity(unity_object->getPos());
+  object_t.rotation = quaternionRos2Unity(unity_object->getQuat());
+  object_t.size = scalarRos2Unity(unity_object->getScale());
+
+  // add dynamic objectc
+  dynamic_objects_.push_back(unity_object);
+  settings_.dynamic_objects.push_back(object_t);
+  pub_msg_.dynamic_objects.push_back(object_t);
+  //
+  return true;
+}
+
+
+FrameID UnityBridge::handleOutput(const FrameID sent_frame_id) {
   zmqpp::message msg;
-  sub_.receive(msg);
-  // unpack message metadata
-  std::string json_sub_msg = msg.get(0);
-  // parse metadata
-  SubMessage_t sub_msg = json::parse(json_sub_msg);
+  SubMessage_t sub_msg;
+  for (int i = 0; i < max_output_request_; i++) {
+    //   // create new message object zmqpp::message msg;
+    //   std::cout << "receiving messages" << std::endl;
+    sub_.receive(msg);
+
+    // unpack message metadata
+    std::string json_sub_msg = msg.get(0);
+    // parse metadata
+    sub_msg = json::parse(json_sub_msg);
+
+    //
+    // std::cout << "i " << 0 << " - " << received
+    //           << ", sent frame id : " << sent_frame_id
+    //           << ", received frame id : " << sub_msg.frame_id << std::endl;
+    if (sub_msg.frame_id == sent_frame_id) break;
+
+    if (i >= (max_output_request_ - 1)) {
+      logger_.error(
+        "Cannot find the updated frame id aftet %d request. Using the last "
+        "request data.",
+        max_output_request_);
+    }
+  }
 
   size_t image_i = 1;
   // ensureBufferIsAllocated(sub_msg);
@@ -223,32 +278,29 @@ bool UnityBridge::handleOutput() {
           // depth
           uint32_t image_len = cam.width * cam.height * 4;
           // Get raw image bytes from ZMQ message.
-          // WARNING: This is a zero-copy operation that also casts the input to
-          // an array of unit8_t. when the message is deleted, this pointer is
-          // also dereferenced.
+          // WARNING: This is a zero-copy operation that also casts the input
+          // to an array of unit8_t. when the message is deleted, this pointer
+          // is also dereferenced.
           const uint8_t* image_data;
           msg.get(image_data, image_i);
           image_i = image_i + 1;
           // Pack image into cv::Mat
           cv::Mat new_image = cv::Mat(cam.height, cam.width, CV_32FC1);
           memcpy(new_image.data, image_data, image_len);
-          // Flip image since OpenCV origin is upper left, but Unity's is lower
-          // left.
-          new_image = new_image * (100.f);
+          // Flip image since OpenCV origin is upper left, but Unity's is
+          // lower left.
+          new_image = new_image * (1.f);
           cv::flip(new_image, new_image, 0);
-
 
           unity_quadrotors_[idx]
             ->getCameras()[cam.output_index]
             ->feedImageQueue(layer_idx, new_image);
-
-
         } else {
           uint32_t image_len = cam.width * cam.height * cam.channels;
           // Get raw image bytes from ZMQ message.
-          // WARNING: This is a zero-copy operation that also casts the input to
-          // an array of unit8_t. when the message is deleted, this pointer is
-          // also dereferenced.
+          // WARNING: This is a zero-copy operation that also casts the input
+          // to an array of unit8_t. when the message is deleted, this pointer
+          // is also dereferenced.
           const uint8_t* image_data;
           msg.get(image_data, image_i);
           image_i = image_i + 1;
@@ -256,8 +308,8 @@ bool UnityBridge::handleOutput() {
           cv::Mat new_image =
             cv::Mat(cam.height, cam.width, CV_MAKETYPE(CV_8U, cam.channels));
           memcpy(new_image.data, image_data, image_len);
-          // Flip image since OpenCV origin is upper left, but Unity's is lower
-          // left.
+          // Flip image since OpenCV origin is upper left, but Unity's is
+          // lower left.
           cv::flip(new_image, new_image, 0);
 
           // Tell OpenCv that the input is RGB.
@@ -271,7 +323,7 @@ bool UnityBridge::handleOutput() {
       }
     }
   }
-  return true;
+  return sub_msg.frame_id;
 }
 
 bool UnityBridge::getPointCloud(PointCloudMessage_t& pointcloud_msg,
@@ -286,18 +338,17 @@ bool UnityBridge::getPointCloud(PointCloudMessage_t& pointcloud_msg,
   // send message without blocking
   pub_.send(msg, true);
 
-  std::cout << "Generate PointCloud: Timeout=" << (int)time_out << " seconds."
-            << std::endl;
+  logger_.info("Generate PointCloud: Timeout= %d seconds", (int)time_out);
 
   Scalar run_time = 0.0;
-  while (!std::experimental::filesystem::exists(
-    pointcloud_msg.path + pointcloud_msg.file_name + ".ply")) {
+  while (!std::filesystem::exists(pointcloud_msg.path +
+                                  pointcloud_msg.file_name + ".ply")) {
     if (run_time >= time_out) {
       logger_.warn("Timeout... PointCloud was not saved within expected time.");
       return false;
     }
-    std::cout << "Waiting for Pointcloud: Current Runtime=" << (int)run_time
-              << " seconds." << std::endl;
+    logger_.info("Waiting for Pointcloud: Current Runtime= %d seconds",
+                 (int)run_time);
     usleep((time_out / 10.0) * 1e6);
     run_time += time_out / 10.0;
   }

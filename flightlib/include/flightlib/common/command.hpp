@@ -1,36 +1,48 @@
-
 #pragma once
-
-#include <cmath>
 
 #include "flightlib/common/types.hpp"
 
 namespace flightlib {
 
-struct Command {
+namespace quadcmd {
+
+enum CMDMODE : int {
+  SINGLEROTOR = 0,
+  THRUSTRATE = 1,
+};
+
+}  // namespace quadcmd
+class Command {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   Command();
+  ~Command();
 
-  Command(const Scalar t, const Scalar thrust, const Vector<3>& omega);
-
-  Command(const Scalar t, const Vector<4>& thrusts);
-
+  //
   bool valid() const;
   bool isSingleRotorThrusts() const;
-  bool isRatesThrust() const;
+  bool isThrustRates() const;
+
+  //
+  void setZeros(void);
+  void setCmdVector(const Vector<4>& cmd);
+  bool setCmdMode(const int cmd_mode);
 
   /// time in [s]
-  Scalar t{NAN};
-
-  /// Collective mass-normalized thrust in [m/s^2]
-  Scalar collective_thrust{NAN};
-
-  /// Bodyrates in [rad/s]
-  Vector<3> omega{NAN, NAN, NAN};
+  Scalar t;
 
   /// Single rotor thrusts in [N]
-  Vector<4> thrusts{NAN, NAN, NAN, NAN};
+  Vector<4> thrusts;
+
+  /// Collective mass-normalized thrust in [m/s^2]
+  Scalar collective_thrust;
+
+  /// Bodyrates in [rad/s]
+  Vector<3> omega;
+
+  ///
+  int cmd_mode;
 };
 
 }  // namespace flightlib
