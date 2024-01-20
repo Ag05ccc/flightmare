@@ -275,5 +275,7 @@ void VecEnvBase<EnvBaseName>::curriculumUpdate(void) {
 template class VecEnvBase<QuadrotorEnv>;
 //
 template class VecEnvBase<VisionEnv>;
+//
+template class VecEnvBase<AgileEnv>;
 
 }  // namespace flightlib

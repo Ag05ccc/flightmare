@@ -1,0 +1,22 @@
+normalde burda sadece rpg_baselines dosyası vardı
+bu yüzden de module setup.py ile kurulunca 
+	from flightrl.rpg_baseline ....
+şeklindeki importlar hata veriyordu - flightrl module not found
+sebebi de flightrl'in build dosyasında doğru formatta bir file structure sahip olmaması
+
+flightrl
+	- __init__.py
+	- rpg_baseline
+		- __init__.py
+		- torch 
+			- __init__.py
+			adfafa
+			asdfas
+
+
+şeklinde olması gerekiyor o yüzden ben flightrl isimli bir dosya oluşturdum içerisinde olan dosyaları buraya kopyaladım ve rpg_baseline dosyasını içeri taşıdıktan sonra silmemişim.
+
+O yüzden ikisi ayrı dosya olarak kalmış.
+Silinebilir
+Kalabilir
+...
