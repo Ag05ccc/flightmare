@@ -1,3 +1,9 @@
+# DEBUG
+import cv2
+import subprocess
+
+
+
 import os
 import pickle
 from copy import deepcopy
@@ -5,7 +11,7 @@ from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import gym
 import numpy as np
-from gym import spaces
+# from gym import spaces
 from numpy.core.fromnumeric import shape
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env.base_vec_env import (VecEnv,
@@ -15,27 +21,68 @@ from stable_baselines3.common.vec_env.base_vec_env import (VecEnv,
 from stable_baselines3.common.vec_env.util import (copy_obs_dict, dict_to_obs,
                                                    obs_space_info)
 
+# DEBUG
+from gymnasium import spaces
 
 class FlightEnvVec(VecEnv):
-    #
+    # AgileEv_v1
     def __init__(self, impl):
         self.wrapper = impl
+        
+        # DEBUG
+        # proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
+        # unity_conection = self.wrapper.connectUnity()
+        # print("unity_conection  :  ",unity_conection)
+        
         self.act_dim = self.wrapper.getActDim()
         self.obs_dim = self.wrapper.getObsDim()
         self.rew_dim = self.wrapper.getRewDim()
         self.img_width = self.wrapper.getImgWidth()
         self.img_height = self.wrapper.getImgHeight()
-        self._observation_space = spaces.Box(
-            np.ones(self.obs_dim) * -np.Inf,
-            np.ones(self.obs_dim) * np.Inf,
-            dtype=np.float64,
-        )
+        
+        # DEFAULT
+        # self._observation_space = spaces.Box(
+        #     np.ones(self.obs_dim) * -np.Inf,
+        #     np.ones(self.obs_dim) * np.Inf,
+        #     dtype=np.float64,
+        # )
+        # DEBUG
+        print("self.img_height : ", self.img_height, "self.img_width: ", self.img_width, " self.obs_dim: ", self.obs_dim)
+        self._observation_space = spaces.Dict({
+            "state": spaces.Box(
+                low=np.ones(self.obs_dim) * -np.Inf,
+                high=np.ones(self.obs_dim) * np.Inf,
+                dtype=np.float64
+            ),
+            # NORMALDE H,W,1 SEKLINDEYDI - 1,H,W YAPTIK, ENSON H,W KALDI
+            "image": spaces.Box(
+                low=np.zeros((1, self.img_height, self.img_width)),  # Assuming RGB images
+                high=np.ones((1, self.img_height, self.img_width)) * 255,
+                dtype=np.float32
+            ),
+        })
         self._action_space = spaces.Box(
             low=np.ones(self.act_dim) * -1.0,
             high=np.ones(self.act_dim) * 1.0,
             dtype=np.float64,
         )
-        self._observation = np.zeros([self.num_envs, self.obs_dim], dtype=np.float64)
+        # DEFAULT
+        # self._observation = np.zeros([self.num_envs, self.obs_dim], dtype=np.float64)
+        
+        # DEBUG
+        self._observation = {
+            "state": np.zeros([self.num_envs, self.obs_dim], dtype=np.float64),
+            "image": np.zeros([self.num_envs, 1, self.img_height, self.img_width], dtype=np.float32)
+        }
+        # print("_init_ : ", self._observation, "      type: ",self._observation["image"].shape)
+        # print("_init_ : ", self._observation, "      type: ",self._observation["image"].shape)
+        # print("_init_ : ", self._observation, "      type: ",self._observation["image"].shape)
+
+        # print("_init_ : ", self._observation, "      type: ",type(self._observation))
+        # print("_init_ : ", self._observation, "      type: ",type(self._observation))
+        # print("_init_ : ", self._observation, "      type: ",type(self._observation))
+
+
         self._rgb_img_obs = np.zeros(
             [self.num_envs, self.img_width * self.img_height * 3], dtype=np.uint8
         )
@@ -70,8 +117,12 @@ class FlightEnvVec(VecEnv):
         self.obs_rms_new = RunningMeanStd(shape=[self.num_envs, self.obs_dim])
 
         self.max_episode_steps = 1000
+
+
         # VecEnv.__init__(self, self.num_envs,
         #                 self._observation_space, self._action_space)
+
+        # self.render_mode = "rgb_array"
 
     def seed(self, seed=0):
         self.wrapper.setSeed(seed)
@@ -87,7 +138,23 @@ class FlightEnvVec(VecEnv):
             self._done,
             self._extraInfo,
         )
+
+        # print("Test_step : ", self._observation, "      type: ",type(self._observation))
+        # print("Test_step : ", self._observation, "      type: ",type(self._observation))
+        # print("Test_step : ", self._observation, "      type: ",type(self._observation))
+        # print("Test_step : ", self._observation, "      type: ",type(self._observation))
+        # print("Test_step : ", self._observation, "      type: ",type(self._observation))
         obs = self.normalize_obs(self._observation)
+
+        # ADD IMAGE
+        depth_img = self.getDepthImage()
+        if self.num_envs == 1:
+            depth_img = np.reshape(depth_img, (1, 1, 240, 320))
+        else:
+            depth_img = np.reshape(depth_img, (3, 1, 240, 320))
+        obs = {"state": obs,
+               "image": depth_img}
+
         return (
             obs,
             self._reward_components[:, -1].copy(),
@@ -98,17 +165,64 @@ class FlightEnvVec(VecEnv):
     def step(self, action):
         if action.ndim <= 1:
             action = action.reshape((-1, self.act_dim))
+        
         self.wrapper.step(
             action,
-            self._observation,
+            self._observation["state"],
             self._reward_components,
             self._done,
             self._extraInfo,
         )
+        # print("step : ", self._observation["image"].shape, "      type: ",type(self._observation["image"]))
+
+
+        # print("step : ", self._observation, "      type: ",type(self._observation))
+        # print("step : ", self._observation, "      type: ",type(self._observation))
+        # print("step : ", self._observation, "      type: ",type(self._observation))
+        # print("step : ", self._observation, "      type: ",type(self._observation))
 
         # update the mean and variance of the Running Mean STD
-        self.obs_rms_new.update(self._observation)
-        obs = self.normalize_obs(self._observation)
+        self.obs_rms_new.update(self._observation["state"])
+        obs = self.normalize_obs(self._observation["state"])
+        
+        # MultiInput-V1
+        # obs = {"state": obs}
+
+        # ADD IMAGE
+        depth_img = self.getDepthImage()
+
+        # ------------------------------DEBUG------------------------------
+        # get_img = self.getImage(rgb=True)
+        # 230400 = 240 * 320 * 3
+        # print("shape : ", get_img.shape, "type: ", type(get_img))
+        # if np.any(get_img):
+            # print("There is at least one non-zero element in the array.")
+            # temp_img = np.reshape(get_img, (240, 320, 3))
+            # depth_img = np.reshape(env.getDepthImage()[
+            #             0], (env.img_height, env.img_width))
+            # temp_img = cv2.cvtColor(temp_img, cv2.COLOR_RGB2BGR)
+
+            # cv2.imshow("temp_img",temp_img)
+            # cv2.waitKey(1)
+        # else:        
+        #     print("All elements in the array are zero.")
+
+        
+        temp_img = np.reshape(depth_img, (240, 320, 10))
+        cv2.imshow("temp_img",temp_img[:,:,0])
+        cv2.waitKey(1)
+
+
+        # ------------------------------DEBUG------------------------------
+        if self.num_envs == 1:
+            depth_img = np.reshape(depth_img, (1, 1, 240, 320))
+        else:
+            depth_img = np.reshape(depth_img, (self.num_envs, 1, 240, 320))
+        obs = {"state": obs,
+               "image": depth_img}
+        
+
+        # print("step : ", obs["image"].shape, "      type: ",type(obs["image"]))
 
         if len(self._extraInfoNames) != 0:
             info = [
@@ -137,6 +251,14 @@ class FlightEnvVec(VecEnv):
                 info[i]["episode"] = epinfo
                 self.rewards[i].clear()
 
+        # print("INFO : ", info)
+        # print("INFO : ", info)
+        # print("INFO : ", info)
+        # print("INFO : ", info)
+        # print("INFO : ", info)
+        
+        # print("STEP STEP STEP : ",obs["image"].shape)
+        self.render(frame_id = len(self.rewards[i]), mode="human")
         return (
             obs,
             self._reward_components[:, -1].copy(),
@@ -152,20 +274,77 @@ class FlightEnvVec(VecEnv):
         return np.asarray(actions, dtype=np.float64)
 
     def reset(self, random=True):
+        
+        
+        # Dict tipindeki observation icin reset fonksiyonunu duzenle
         self._reward_components = np.zeros(
             [self.num_envs, self.rew_dim], dtype=np.float64
         )
-        self.wrapper.reset(self._observation, random)
+        # reset observation alip size kontrol yapiyor. Sadece state versek sorun degil gibi gozukuyor
+        self.wrapper.reset(self._observation["state"], random)
+        # self.wrapper.reset(self._observation["image"], random)
+        # print("reset : ", self._observation, "      type: ",type(self._observation))
+        # print("reset : ", self._observation, "      type: ",type(self._observation))
+        # print("reset : ", self._observation, "      type: ",type(self._observation))
+        # print("reset : ", self._observation, "      type: ",type(self._observation))
+        # print("reset : ", self._observation, "      type: ",type(self._observation))
         obs = self._observation
         #
-        self.obs_rms_new.update(self._observation)
-        obs = self.normalize_obs(self._observation)
+        self.obs_rms_new.update(self._observation["state"])
+        obs = self.normalize_obs(self._observation["state"])
+
+        # MultiInput-V1
+        # obs = {"state": obs}
+
+        # ADD IMAGE
+        depth_img = self.getDepthImage()
         if self.num_envs == 1:
-            return obs[0]
+            depth_img = np.reshape(depth_img, (1, 1, 240, 320))
+        else:
+            depth_img = np.reshape(depth_img, (self.num_envs, 1, 240, 320))
+        
+        obs = {"state": obs,
+               "image": depth_img}
+        
+        # print("wrapper reset() : ", obs["image"].shape, "      type: ",type(obs["image"]))
+
+        # @TODO: HER SEFERINDE SIFIR DEGER VERIYORUZ GOZLEMI VERMEK YERINE BU YANLIS
+        # SADECE TYPE KABUL EDECEK MI DENEMEK ICIN
+        # obs = spaces.Dict({
+        #     "state": spaces.Box(
+        #         low=np.ones(self.obs_dim) * -np.Inf,
+        #         high=np.ones(self.obs_dim) * np.Inf,
+        #         dtype=np.float64
+        #     ),
+        # })
+
+        # print("RESET RESET RESET : ",obs["image"].shape)
+        
+        if self.num_envs == 1:
+            # print(obs["state"].shape)
+            # print("---------------------------------")
+            # obs2 = spaces.Dict({
+            #     "state": spaces.Box(
+            #         low=np.ones(self.obs_dim) * -np.Inf,
+            #         high=np.ones(self.obs_dim) * np.Inf,
+            #         dtype=np.float64
+            #     ),
+            # })
+            # print(obs2)
+            # print(obs2["state"].shape)
+            # print(obs2["state"])
+            # print(self._observation_space["state"].shape)
+            # print(self._observation_space["state"])
+            return obs
         return obs
 
     def getObs(self):
         self.wrapper.getObs(self._observation)
+        # print("getObs : ", self._observation, "      type: ",type(self._observation))
+        # print("getObs : ", self._observation, "      type: ",type(self._observation))
+        # print("getObs : ", self._observation, "      type: ",type(self._observation))
+        # print("getObs : ", self._observation, "      type: ",type(self._observation))
+        # print("getObs : ", self._observation, "      type: ",type(self._observation))
         return self.normalize_obs(self._observation)
 
     def reset_and_update_info(self):
@@ -186,6 +365,7 @@ class FlightEnvVec(VecEnv):
             return self._gray_img_obs.copy()
 
     def getDepthImage(self):
+        # shape : (100, 76800) ( 320 * 240  = 76800)
         self.wrapper.getDepthImage(self._depth_img_obs)
         return self._depth_img_obs.copy()
 
@@ -198,6 +378,11 @@ class FlightEnvVec(VecEnv):
             self._extraInfo,
             send_id,
         )
+        # print("stepUnity : ", self._observation, "      type: ",type(self._observation))
+        # print("stepUnity : ", self._observation, "      type: ",type(self._observation))
+        # print("stepUnity : ", self._observation, "      type: ",type(self._observation))
+        # print("stepUnity : ", self._observation, "      type: ",type(self._observation))
+        # print("stepUnity : ", self._observation, "      type: ",type(self._observation))
 
         return receive_id
 
@@ -321,10 +506,15 @@ class FlightEnvVec(VecEnv):
     def curriculum_callback(self):
         self.wrapper.curriculumUpdate()
 
-    def step_async(self):
+    # DEBUG
+    def step_async(self, actual_acts):
+        #return self.step(actual_acts)
         raise RuntimeError("This method is not implemented")
 
+    # DEBUG
     def step_wait(self):
+        # return self.step()     
+        #return self._observation, self._reward_components[:, -1].copy(), self._done.copy(), self._extraInfo.copy()
         raise RuntimeError("This method is not implemented")
 
     def get_attr(self, attr_name, indices=None):
@@ -334,7 +524,8 @@ class FlightEnvVec(VecEnv):
         :param indices: (list,int) Indices of envs to get attribute from
         :return: (list) List of values of 'attr_name' in all environments
         """
-        raise RuntimeError("This method is not implemented")
+        raise AttributeError("This method is not implemented")
+        # raise RuntimeError("This method is not implemented")
 
     def set_attr(self, attr_name, value, indices=None):
         """
@@ -400,3 +591,4 @@ class FlightEnvVec(VecEnv):
         #
         self.obs_rms.mean = np.mean(self.mean, axis=0)
         self.obs_rms.var = np.mean(self.var, axis=0)
+
