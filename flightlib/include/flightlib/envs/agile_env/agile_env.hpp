@@ -124,6 +124,15 @@ class AgileEnv final : public EnvBase {
   Scalar vel_coeff_, collision_coeff_, angular_vel_coeff_, survive_rew_;
   Vector<3> goal_linear_vel_;
   bool is_collision_;
+  
+  // DEBUG
+  bool DEBUG_FLAG_ = false;
+  Scalar goal_position_coeff_;
+  Scalar dist_margin_;
+  Vector<3> linear_vel_mask_;
+  Vector<3> goal_position_;
+  std::vector<Vector<3>, Eigen::aligned_allocator<Vector<3>>> relative_pos_vector_;
+
 
   // max detection range (meter)
   Scalar max_detection_range_;
