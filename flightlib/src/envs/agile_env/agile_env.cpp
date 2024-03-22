@@ -23,7 +23,6 @@ AgileEnv::AgileEnv(const std::string &cfg_path, const int env_id)
 
 AgileEnv::AgileEnv(const YAML::Node &cfg_node, const int env_id) : EnvBase() {
   cfg_ = cfg_node;
-
   //
   init();
   env_id_ = env_id;
@@ -56,15 +55,6 @@ void AgileEnv::init() {
 
   // load parameters
   loadParam(cfg_);
-  
-  // std::cout << " --------------------  " << std::endl;
-  // std::cout << "vel_coeff_           : " << vel_coeff_ << std::endl;
-  // std::cout << "collision_coeff_     : " << collision_coeff_ << std::endl;
-  // std::cout << "angular_vel_coeff_   : " << angular_vel_coeff_ << std::endl;
-  // std::cout << "survive_rew_         : " << survive_rew_ << std::endl;
-  // std::cout << "dist_margin          : " << dist_margin_ << std::endl;
-  // std::cout << "goal_position_coeff_ : " << goal_position_coeff_ << std::endl;
-  // std::cout << " --------------------  " << std::endl;
 
   // add camera
   if (!configCamera(cfg_)) {
@@ -156,13 +146,6 @@ bool AgileEnv::getObs(Ref<Vector<>> obs) {
   getObstacleState(obstacle_obs, obstacle_vel_obs);
 
   /*
-  Toplamda 55 boyutlu bir observation vektörü oluşturuluyor. Bu vektörün elemanları şu şekilde:
-  goal_linear_vel_ : 3
-  ori              : 9
-  quad_state_.v    : 3
-  obstacle_obs     : 40 (10 * 4) - 10 obstacles, each with 4 states ((x,y,z) + size(r)), (x: ileri/geri, y: sag/sol, z: yukseklik)
-
-  DEBUG
   goal_linear_vel_ : 3
   ori              : 9
   quad_state_.p    : 3
@@ -183,16 +166,13 @@ bool AgileEnv::getObs(Ref<Vector<>> obs) {
   return true;
 }
 
-// Vector<agileenv::kNObstacles * agileenv::kNObstaclesVel> AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_vel_obs) {
 bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_vel_obs) {
-
-  // DEBUG - KAPATILDI - DINAMIK NESNE EKLEMEMEK ICIN
-  // if (dynamic_objects_.size() <= 0 || static_objects_.size() <= 0) {
-  if (dynamic_objects_.size() <= 0) {
-    // logger_.error("No dynamic or static obstacles.");
-    logger_.error("No dynamic_objects obstacles.");
+  
+  if (dynamic_objects_.size() <= 0 || static_objects_.size() <= 0) {
+    logger_.error("No dynamic or static obstacles.");
     return false;
   }
+
   // make sure to reset the collision penalty
   relative_pos_norm_.clear();
   relative_pos_vector_.clear();
@@ -203,29 +183,25 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
 
   // compute relative distance to dynamic obstacles
   std::vector<Vector<3>, Eigen::aligned_allocator<Vector<3>>> relative_pos;
-  // ENGEL HIZ BILGISI - Hiz bilgisini tut / allocator vectorized ortam icin galiba
+  // Obs velocity information / allocator for vectorized environment
   std::vector<Vector<3>, Eigen::aligned_allocator<Vector<3>>> obstacle_vel_list;
   
-
-  //  -------------------------------------------------DYNAMIC----------------------------------------------------------------------
+  //  ----------------------------------------------- Dynamic -----------------------------------------------
   for (int i = 0; i < (int)dynamic_objects_.size(); i++) {
-    // Velocity hesaplama -1 
+    
+    // Velocity calculation
     Vector<3> obs_velocity = dynamic_objects_[i]->getSpeed();
     float magnitude = std::sqrt(obs_velocity[0] * obs_velocity[0] + obs_velocity[1] * obs_velocity[1] + obs_velocity[2] * obs_velocity[2]);
     if (magnitude == 0){
-     Vector<3>normalized_v{0.0, 0.0, 0.0};
-     obstacle_vel_list.push_back(normalized_v);     
+      Vector<3>normalized_v{0.0, 0.0, 0.0};
+      obstacle_vel_list.push_back(normalized_v);     
     }
     else{
-
-    Vector<3> normalized_v;
-    normalized_v[0] = std::max(0.0,std::min(100.0,(obs_velocity[0] / magnitude)));
-    normalized_v[1] = std::max(0.0,std::min(100.0,(obs_velocity[1] / magnitude)));
-    normalized_v[2] = std::max(0.0,std::min(100.0,(obs_velocity[2] / magnitude)));
-
-    // ENGEL HIZ BILGISI - obs_state icerisine hiz bilgisi ekleniyor
-    obstacle_vel_list.push_back(normalized_v);
-
+      Vector<3> normalized_v;
+      normalized_v[0] = std::max(0.0,std::min(100.0,(obs_velocity[0] / magnitude)));
+      normalized_v[1] = std::max(0.0,std::min(100.0,(obs_velocity[1] / magnitude)));
+      normalized_v[2] = std::max(0.0,std::min(100.0,(obs_velocity[2] / magnitude)));
+      obstacle_vel_list.push_back(normalized_v);
     }
       
     // compute relative position vector
@@ -234,8 +210,7 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
 
     // compute relative distance
     Scalar obstacle_dist = delta_pos.norm();
-    // limit observation range
-    if (obstacle_dist > max_detection_range_) {
+    if (obstacle_dist > max_detection_range_){
       obstacle_dist = max_detection_range_;
     }
     relative_pos_norm_.push_back(obstacle_dist);
@@ -244,24 +219,20 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
     Scalar obs_radius = dynamic_objects_[i]->getScale()[0] / 2;
     obstacle_radius_.push_back(obs_radius);
 
-    //
+    // Check collision 
     if (obstacle_dist < obs_radius) {
       is_collision_ = true;
     }
   }
   
-  //  -------------------------------------------------STATIC----------------------------------------------------------------------
+  //  ----------------------------------------------- Static -----------------------------------------------
   // compute relatiev distance to static obstacles
   for (int i = 0; i < (int)static_objects_.size(); i++) {
     // compute relative position vector
     Vector<3> delta_pos = static_objects_[i]->getPos() - quad_state_.p;
-    // DEBUG 
-    // relative_pos.push_back(delta_pos);
-
 
     // compute relative distance
     Scalar obstacle_dist = delta_pos.norm();
-    // Scalar obstacle_dist_radius_temp = delta_pos.norm();
     // Scalar obstacle_dist = (quad_state_.v.cwiseProduct(delta_pos)).norm();
 
     // Dot Product
@@ -300,7 +271,7 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
     }
   }
   
-  //  -------------------------------------------------SEGMENT----------------------------------------------------------------------
+  //  ----------------------------------------------- Segment -----------------------------------------------
   
   size_t idx = 0;
   for (size_t sort_idx : sort_indexes(relative_pos_norm_)) {
@@ -324,9 +295,7 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
           idx * agileenv::kNObstaclesState) =
            Vector<4>(max_detection_range_, max_detection_range_,
                      max_detection_range_, obstacle_radius_[sort_idx]);
-          // Eigen::Matrix<double, 7, 1> tempVec;
-          // tempVec << max_detection_range_, max_detection_range_, max_detection_range_, obstacle_radius_[sort_idx], 0.0, 0.0, 0.0;
-
+          // To add velocity information, we can also add velocity as another element of obs_state
           // obs_state.segment<agileenv::kNObstaclesState>(
           // idx * agileenv::kNObstaclesState) << max_detection_range_, max_detection_range_,
           //                                      max_detection_range_, obstacle_radius_[sort_idx],
@@ -345,10 +314,7 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
         Vector<agileenv::kNObstaclesState>(max_detection_range_,
                                             max_detection_range_,
                                             max_detection_range_, 0.0);
-      // DEBUG
-        // Eigen::Matrix<double, 7, 1> tempVec;
-        // tempVec << max_detection_range_, max_detection_range_, max_detection_range_, 0.0, 0.0, 0.0, 0.0;
-
+        // To add velocity information, we can also add velocity as another element of obs_state
         // obs_state.segment<agileenv::kNObstaclesState>(
         //   idx * agileenv::kNObstaclesState) << max_detection_range_,
         //                                        max_detection_range_,
@@ -395,7 +361,6 @@ bool AgileEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs,
   quad_ptr_->getState(&quad_state_);
 
   // simulate dynamic obstacles
-  // DEBUG - KAPATILDI - DINAMIK NESNE EKLEMEMEK ICIN
   simDynamicObstacles(sim_dt_);
 
   // update observations
@@ -410,9 +375,6 @@ bool AgileEnv::simDynamicObstacles(const Scalar dt) {
       "No Dynamic Obstacles defined. Skipping dynamic obstacles simulation.");
     return false;
   }
-  
-  // DEBUG HIZ 
-  old_dynamic_objects_ = dynamic_objects_;
   
   for (int i = 0; i < int(dynamic_objects_.size()); i++) {
     dynamic_objects_[i]->run(sim_dt_);
@@ -738,9 +700,6 @@ bool AgileEnv::configDynamicObjects(const std::string &yaml_file) {
     dynamic_objects_.push_back(obj);
   }
   num_dynamic_objects_ = dynamic_objects_.size();
-
-  // DEBUG HIZ    
-  old_dynamic_objects_ = dynamic_objects_;
     
   return true;
 }

@@ -128,7 +128,6 @@ class AgileEnv final : public EnvBase {
   //
   std::vector<std::shared_ptr<UnityObject>> static_objects_;
   std::vector<std::shared_ptr<UnityObject>> dynamic_objects_;
-  std::vector<std::shared_ptr<UnityObject>> old_dynamic_objects_;
 
   QuadState quad_state_, quad_old_state_;
   Command cmd_;
