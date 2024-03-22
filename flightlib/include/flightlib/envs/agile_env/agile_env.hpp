@@ -31,11 +31,23 @@ enum Agile : int {
   kNQuadState = 25,
 
   kNObstacles = 10,
-  kNObstaclesState = 4,
+  kNObstaclesState = 4, //4
+  kNObstaclesVel = 3,
 
   // observations
+  /*
+  goal_linear_vel_ : 3
+  ori              : 9
+  quad_state_.p    : 3
+  quad_state_.v    : 3
+  quad_state_.w    : 3
+  obstacle_obs     : 40 (10 * 4) - 10 obstacles, each with 7 states ((x,y,z) + size(r) + (Vx,Vy,Vz)), (x: ileri/geri, y: sag/sol, z: yukseklik)
+  world_box sinir  : 4
+  TOPLAM           : 91 + 4 
+  */
   kObs = 0,
-  kNObs = 15 + kNObstacles * kNObstaclesState,
+  kNObs = 3 + 9 + 3 + 3 + 3 + (kNObstacles * kNObstaclesState) + (kNObstacles * kNObstaclesVel) + 4,
+  // kNObs = (kNObstacles * kNObstaclesVel),
 
   // control actions
   kAct = 0,
@@ -65,7 +77,8 @@ class AgileEnv final : public EnvBase {
   bool getImage(Ref<ImgVector<>> img, const bool rgb = true) override;
   bool getDepthImage(Ref<DepthImgVector<>> img) override;
 
-  bool getObstacleState(Ref<Vector<>> obstacle_obs);
+  // bool getObstacleState(Ref<Vector<>> obstacle_obs);
+  bool getObstacleState(Ref<Vector<>> obstacle_obs, Ref<Vector<>> obstacle_vel_obs);
   // get quadrotor states
   bool getQuadAct(Ref<Vector<>> act) const;
   bool getQuadState(Ref<Vector<>> state) const;
@@ -115,6 +128,7 @@ class AgileEnv final : public EnvBase {
   //
   std::vector<std::shared_ptr<UnityObject>> static_objects_;
   std::vector<std::shared_ptr<UnityObject>> dynamic_objects_;
+  std::vector<std::shared_ptr<UnityObject>> old_dynamic_objects_;
 
   QuadState quad_state_, quad_old_state_;
   Command cmd_;

@@ -175,6 +175,8 @@ bool QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs,
   // update observations
   getObs(obs);
 
+  // DEBUG - BU KOD TRAIN SIRASINDA CALISMIYOR GALIBA 
+  // std::cout << " QUADROTOR STATE REWARD CALCULATION !!! "<< std::endl;
   // ---------------------- reward function design
   // - position tracking
   const Scalar pos_reward = pos_coeff_ * (quad_state_.p - goal_pos_).norm();

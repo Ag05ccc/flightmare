@@ -19,6 +19,9 @@ class UnityObject {
   virtual Vector<3> getSize(void) { return size_; };
   virtual Vector<3> getScale(void) { return scale_; };
 
+  // DEBUG ENGEL HIZ BILGISI
+  virtual Vector<3> getSpeed(void) { return state_.v; };
+
   // public get functions
   const std::string getID(void) { return id_; };
   const std::string getPrefabID(void) { return prefab_id_; };
@@ -34,7 +37,6 @@ class UnityObject {
   inline void setSize(const Vector<3>& size) { size_ = size; };
   inline void setScale(const Vector<3>& scale) { scale_ = scale; };
 
-
  protected:
   const std::string id_;
   const std::string prefab_id_;
@@ -47,6 +49,9 @@ class UnityObject {
 
   Vector<3> size_;
   Vector<3> scale_;
+  // ENGEL HIZ BILGISI DEBUG
+  Vector<3> speed_;
+
 };
 
 }  // namespace flightlib

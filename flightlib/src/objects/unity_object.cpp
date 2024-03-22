@@ -36,6 +36,11 @@ bool UnityObject::loadTrajectory(const std::string traj_csv) {
   std::ifstream infile(traj_csv);
   // iterate through all rows
   bool skip_header = true;
+
+  // DEBUG
+  bool prev_flag = true;
+  RigidState prev_state;
+
   for (auto& row : CSVRange(infile)) {
     if (skip_header) {
       skip_header = false;
@@ -57,7 +62,23 @@ bool UnityObject::loadTrajectory(const std::string traj_csv) {
     state_i.x[RS::ATTY] = std::stod((std::string)row[5]);
     state_i.x[RS::ATTZ] = std::stod((std::string)row[6]);
 
+
+    // ENGEL HIZ BILGISI DEBUG Calculate speed
+    if (!prev_flag) {
+      double dt = state_i.t - prev_state.t;
+      double dx = state_i.x[RS::POSX] - prev_state.x[RS::POSX];
+      double dy = state_i.x[RS::POSY] - prev_state.x[RS::POSY];
+      double dz = state_i.x[RS::POSZ] - prev_state.x[RS::POSZ];
+      state_i.x[RS::VELX] = dx / dt;
+      state_i.x[RS::VELY] = dy / dt;
+      state_i.x[RS::VELZ] = dz / dt;
+      
+    }
     traj_.push_back(state_i);
+
+    // DEBUG
+    prev_state = state_i;
+    prev_flag = false;
   }
 
   // static object
