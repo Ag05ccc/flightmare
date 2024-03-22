@@ -37,29 +37,36 @@ class FlightEnvVec(VecEnv):
         
         self.IMAGE_FLAG = False
 
-        # DEBUG
-        if self.IMAGE_FLAG:
-            self._observation_space = spaces.Dict({
-                "state": spaces.Box(
-                    low=np.ones(self.obs_dim) * -np.Inf,
-                    high=np.ones(self.obs_dim) * np.Inf,
-                    dtype=np.float64
-                ),
-                # NORMALDE H,W,1 SEKLINDEYDI - 1,H,W YAPTIK, ENSON H,W KALDI
-                "image": spaces.Box(
-                    low=np.zeros((1, self.img_height, self.img_width)),  # Assuming RGB images
-                    high=np.ones((1, self.img_height, self.img_width)) * 255,
-                    dtype=np.float32
-                ),
-            })
-        else:
-            self._observation_space = spaces.Dict({
-            "state": spaces.Box(
-                low=np.ones(self.obs_dim) * -np.Inf,
-                high=np.ones(self.obs_dim) * np.Inf,
-                dtype=np.float64
-            ),
-        })
+        # IMAGE
+        # if self.IMAGE_FLAG:
+        #     self._observation_space = spaces.Dict({
+        #         "state": spaces.Box(
+        #             low=np.ones(self.obs_dim) * -np.Inf,
+        #             high=np.ones(self.obs_dim) * np.Inf,
+        #             dtype=np.float64
+        #         ),
+        #         # NORMALDE H,W,1 SEKLINDEYDI - 1,H,W YAPTIK, ENSON H,W KALDI
+        #         "image": spaces.Box(
+        #             low=np.zeros((1, self.img_height, self.img_width)),  # Assuming RGB images
+        #             high=np.ones((1, self.img_height, self.img_width)) * 255,
+        #             dtype=np.float32
+        #         ),
+        #     })
+        # else:
+        #     self._observation_space = spaces.Dict({
+        #     "state": spaces.Box(
+        #         low=np.ones(self.obs_dim) * -np.Inf,
+        #         high=np.ones(self.obs_dim) * np.Inf,
+        #         dtype=np.float64
+        #     ),
+        # })
+        
+        # LSTM
+        self._observation_space = spaces.Box(
+            np.ones(self.obs_dim) * -np.Inf,
+            np.ones(self.obs_dim) * np.Inf,
+            dtype=np.float64,
+        )
         
         self._action_space = spaces.Box(
             low=np.ones(self.act_dim) * -1.0,
@@ -67,18 +74,18 @@ class FlightEnvVec(VecEnv):
             dtype=np.float64,
         )
         # DEFAULT
-        # self._observation = np.zeros([self.num_envs, self.obs_dim], dtype=np.float64)
+        self._observation = np.zeros([self.num_envs, self.obs_dim], dtype=np.float64)
         
         # DEBUG
-        if self.IMAGE_FLAG:
-            self._observation = {
-                "state": np.zeros([self.num_envs, self.obs_dim], dtype=np.float64),
-                "image": np.zeros([self.num_envs, 1, self.img_height, self.img_width], dtype=np.float32)
-            }
-        else:
-            self._observation = {
-                "state": np.zeros([self.num_envs, self.obs_dim], dtype=np.float64),
-            }
+        # if self.IMAGE_FLAG:
+        #     self._observation = {
+        #         "state": np.zeros([self.num_envs, self.obs_dim], dtype=np.float64),
+        #         "image": np.zeros([self.num_envs, 1, self.img_height, self.img_width], dtype=np.float32)
+        #     }
+        # else:
+        #     self._observation = {
+        #         "state": np.zeros([self.num_envs, self.obs_dim], dtype=np.float64),
+        #     }
 
         self._rgb_img_obs = np.zeros(
             [self.num_envs, self.img_width * self.img_height * 3], dtype=np.uint8
@@ -164,7 +171,8 @@ class FlightEnvVec(VecEnv):
         
         self.wrapper.step(
             action,
-            self._observation["state"],
+            self._observation,
+            # self._observation["state"],
             self._reward_components,
             self._done,
             self._extraInfo,
@@ -307,7 +315,8 @@ class FlightEnvVec(VecEnv):
             [self.num_envs, self.rew_dim], dtype=np.float64
         )
         # reset observation alip size kontrol yapiyor. Sadece state versek sorun degil gibi gozukuyor
-        self.wrapper.reset(self._observation["state"], random)
+        self.wrapper.reset(self._observation, random)
+        # self.wrapper.reset(self._observation["state"], random)
         # self.wrapper.reset(self._observation["image"], random)
         # print("reset : ", self._observation, "      type: ",type(self._observation))
         # print("reset : ", self._observation, "      type: ",type(self._observation))
@@ -316,8 +325,11 @@ class FlightEnvVec(VecEnv):
         # print("reset : ", self._observation, "      type: ",type(self._observation))
         obs = self._observation
         #
-        self.obs_rms_new.update(self._observation["state"])
-        obs = self.normalize_obs(self._observation["state"])
+        # self.obs_rms_new.update(self._observation["state"])
+        # obs = self.normalize_obs(self._observation["state"])
+
+        self.obs_rms_new.update(self._observation)
+        obs = self.normalize_obs(self._observation)
 
         # MultiInput-V1
         # obs = {"state": obs}
@@ -329,7 +341,8 @@ class FlightEnvVec(VecEnv):
             obs = {"state": obs,
                 "image": depth_img}
         else:
-            obs = {"state": obs}
+            pass
+            # obs = {"state": obs}
         
         # print("wrapper reset() : ", obs["image"].shape, "      type: ",type(obs["image"]))
 

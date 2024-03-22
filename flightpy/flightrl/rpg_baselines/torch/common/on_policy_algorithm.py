@@ -1,22 +1,23 @@
 import os
-import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+import gym
 import numpy as np
 import torch as th
-from gymnasium import spaces
-
+from genericpath import exists
+from ruamel.yaml import YAML
 from stable_baselines3.common.base_class import BaseAlgorithm
-from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
+from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.policies import ActorCriticPolicy
-from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import obs_as_tensor, safe_mean
+from stable_baselines3.common.type_aliases import (GymEnv, MaybeCallback,
+                                                   Schedule)
+from stable_baselines3.common.utils import safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 
-SelfOnPolicyAlgorithm = TypeVar("SelfOnPolicyAlgorithm", bound="OnPolicyAlgorithm")
-
+# DEBUG
+from gymnasium import spaces
 
 class OnPolicyAlgorithm(BaseAlgorithm):
     """
@@ -38,16 +39,13 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
-    :param rollout_buffer_class: Rollout buffer class to use. If ``None``, it will be automatically selected.
-    :param rollout_buffer_kwargs: Keyword arguments to pass to the rollout buffer on creation.
-    :param stats_window_size: Window size for the rollout logging, specifying the number of episodes to average
-        the reported success rate, mean episode length, and mean reward over
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
+    :param create_eval_env: Whether to create a second environment that will be
+        used for evaluating the agent periodically. (Only available when passing string for the environment)
     :param monitor_wrapper: When creating an environment, whether to wrap it
         or not in a Monitor wrapper.
     :param policy_kwargs: additional arguments to be passed to the policy on creation
-    :param verbose: Verbosity level: 0 for no output, 1 for info messages (such as device or wrappers used), 2 for
-        debug messages
+    :param verbose: the verbosity level: 0 no output, 1 info, 2 debug
     :param seed: Seed for the pseudo random generators
     :param device: Device (cpu, cuda, ...) on which the code should be run.
         Setting it to auto, the code will be run on the GPU if possible.
@@ -55,15 +53,13 @@ class OnPolicyAlgorithm(BaseAlgorithm):
     :param supported_action_spaces: The action spaces supported by the algorithm.
     """
 
-    rollout_buffer: RolloutBuffer
-    policy: ActorCriticPolicy
-
     def __init__(
         self,
         policy: Union[str, Type[ActorCriticPolicy]],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
         n_steps: int,
+        use_tanh_act: bool,
         gamma: float,
         gae_lambda: float,
         ent_coef: float,
@@ -71,30 +67,31 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         max_grad_norm: float,
         use_sde: bool,
         sde_sample_freq: int,
-        rollout_buffer_class: Optional[Type[RolloutBuffer]] = None,
-        rollout_buffer_kwargs: Optional[Dict[str, Any]] = None,
-        stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
+        create_eval_env: bool = False,
+        eval_env: Union[GymEnv, str] = None,
         monitor_wrapper: bool = True,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
-        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
+        supported_action_spaces: Optional[Tuple[spaces.Space, ...]] = None,
     ):
-        super().__init__(
+
+        super(OnPolicyAlgorithm, self).__init__(
             policy=policy,
             env=env,
+            #policy_base=ActorCriticPolicy,
             learning_rate=learning_rate,
             policy_kwargs=policy_kwargs,
             verbose=verbose,
             device=device,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
+            # create_eval_env=create_eval_env,
             support_multi_env=True,
             seed=seed,
-            stats_window_size=stats_window_size,
             tensorboard_log=tensorboard_log,
             supported_action_spaces=supported_action_spaces,
         )
@@ -102,11 +99,13 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.n_steps = n_steps
         self.gamma = gamma
         self.gae_lambda = gae_lambda
+        self.use_tanh_act = use_tanh_act
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
-        self.rollout_buffer_class = rollout_buffer_class
-        self.rollout_buffer_kwargs = rollout_buffer_kwargs or {}
+        self.rollout_buffer = None
+
+        self.eval_env = eval_env
 
         if _init_setup_model:
             self._setup_model()
@@ -115,25 +114,29 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
 
-        if self.rollout_buffer_class is None:
-            if isinstance(self.observation_space, spaces.Dict):
-                self.rollout_buffer_class = DictRolloutBuffer
-            else:
-                self.rollout_buffer_class = RolloutBuffer
-
-        self.rollout_buffer = self.rollout_buffer_class(
+        self.rollout_buffer = RolloutBuffer(
             self.n_steps,
-            self.observation_space,  # type: ignore[arg-type]
+            self.observation_space,
             self.action_space,
-            device=self.device,
+            self.device,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
-            **self.rollout_buffer_kwargs,
         )
-        self.policy = self.policy_class(  # type: ignore[assignment]
-            self.observation_space, self.action_space, self.lr_schedule, use_sde=self.use_sde, **self.policy_kwargs
+
+        self.policy = self.policy_class(  # pytype:disable=not-instantiable
+            self.observation_space,
+            self.action_space,
+            self.lr_schedule,
+            use_sde=self.use_sde,
+            **self.policy_kwargs  # pytype:disable=not-instantiable
         )
+
+        # 1) Add Tanh activation to Policy Net
+        if self.use_tanh_act:
+            self.policy.action_net = th.nn.Sequential(
+                self.policy.action_net, th.nn.Tanh()
+            )
 
         self.policy = self.policy.to(self.device)
 
@@ -153,14 +156,11 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         :param callback: Callback that will be called at each step
             (and at the beginning and end of the rollout)
         :param rollout_buffer: Buffer to fill with rollouts
-        :param n_rollout_steps: Number of experiences to collect per environment
+        :param n_steps: Number of experiences to collect per environment
         :return: True if function returned with at least `n_rollout_steps`
             collected, False if callback terminated rollout prematurely.
         """
         assert self._last_obs is not None, "No previous observation was provided"
-        # Switch to eval mode (this affects batch norm / dropout)
-        self.policy.set_training_mode(False)
-        
         n_steps = 0
         rollout_buffer.reset()
         # Sample new weights for the state dependent exploration
@@ -168,41 +168,42 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.policy.reset_noise(env.num_envs)
 
         callback.on_rollout_start()
+
         while n_steps < n_rollout_steps:
-            if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and n_steps % self.sde_sample_freq == 0
+            ):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
-            with th.no_grad():      
-                # Convert to pytorch tensor or to TensorDict
-                obs_tensor = obs_as_tensor(self._last_obs, self.device)
-                
-                # DEBUG
-                # 1,10,240,320 DEGIL 10,1,240,320 OLMALIYDI
-                if len(self._last_obs["image"].shape) == 3:
-                    obs_tensor["image"] = obs_tensor["image"].unsqueeze(1)
-                
-                actions, values, log_probs = self.policy(obs_tensor)
+            # Normalize observation (for RacingEnv)
+            # obs_mean, obs_std = self.env.get_obs_norm()
+            # obs_norm = (self._last_obs - obs_mean) / obs_std
+            obs_norm = self._last_obs
+
+            with th.no_grad():
+                # Convert to pytorch tensor
+                obs_tensor = th.as_tensor(obs_norm).to(self.device)
+                actions, values, log_probs = self.policy.forward(obs_tensor)
             actions = actions.cpu().numpy()
 
             # Rescale and perform action
             clipped_actions = actions
+            # Clip the actions to avoid out of bound error
             if isinstance(self.action_space, spaces.Box):
-                if self.policy.squash_output:
-                    # Unscale the actions to match env bounds
-                    # if they were previously squashed (scaled in [-1, 1])
-                    clipped_actions = self.policy.unscale_action(clipped_actions)
-                else:
-                    # Otherwise, clip the actions to avoid out of bound error
-                    # as we are sampling from an unbounded Gaussian distribution
-                    clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+                clipped_actions = np.clip(
+                    actions, self.action_space.low, self.action_space.high
+                )
 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
 
             self.num_timesteps += env.num_envs
+
             # Give access to local variables
             callback.update_locals(locals())
-            if not callback.on_step():
+            if callback.on_step() is False:
                 return False
 
             self._update_info_buffer(infos)
@@ -211,47 +212,26 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             if isinstance(self.action_space, spaces.Discrete):
                 # Reshape in case of discrete action
                 actions = actions.reshape(-1, 1)
-
-            # Handle timeout by bootstraping with value function
-            # see GitHub issue #633
-            for idx, done in enumerate(dones):
-                if (
-                    done
-                    and infos[idx].get("terminal_observation") is not None
-                    and infos[idx].get("TimeLimit.truncated", False)
-                ):
-                    terminal_obs = self.policy.obs_to_tensor(infos[idx]["terminal_observation"])[0]
-                    with th.no_grad():
-                        terminal_value = self.policy.predict_values(terminal_obs)[0]  # type: ignore[arg-type]
-                    rewards[idx] += self.gamma * terminal_value
-
-            # DEBUG
-            if len(self._last_obs["image"].shape) == 3:
-                self._last_obs["image"] = th.from_numpy(self._last_obs["image"]).unsqueeze(1)
-
             rollout_buffer.add(
-                self._last_obs,  # type: ignore[arg-type]
-                actions,
-                rewards,
-                self._last_episode_starts,  # type: ignore[arg-type]
-                values,
-                log_probs,
+                obs_norm, actions, rewards, self._last_episode_starts, values, log_probs
             )
-            self._last_obs = new_obs  # type: ignore[assignment]
+
+            self._last_obs = new_obs
             self._last_episode_starts = dones
 
         with th.no_grad():
+            # Normalize observation
+            # obs_mean, obs_std = self.env.get_obs_norm()
+            # obs_norm = (self._last_obs - obs_mean) / obs_std
+            obs_norm = self._last_obs
+
             # Compute value for the last timestep
-            if len(new_obs["image"].shape) == 3:
-                new_obs["image"] = np.expand_dims(new_obs["image"], axis=1)
-            temp_obs = obs_as_tensor(new_obs, self.device)
-            values = self.policy.predict_values(temp_obs)  # type: ignore[arg-type]
+            obs_tensor = th.as_tensor(obs_norm).to(self.device)
+            _, values, _ = self.policy.forward(obs_tensor)
 
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
-        callback.update_locals(locals())
+
         callback.on_rollout_end()
-        
-        
 
         return True
 
@@ -262,55 +242,110 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         """
         raise NotImplementedError
 
+    def eval(self) -> None:
+        """
+        Test the policy
+        """
+        raise NotImplementedError
+
     def learn(
-        self: SelfOnPolicyAlgorithm,
+        self,
         total_timesteps: int,
         callback: MaybeCallback = None,
-        log_interval: int = 1,
+        log_interval: Tuple = (10, 100),
+        eval_env: Optional[GymEnv] = None,
+        eval_freq: int = -1,
+        n_eval_episodes: int = 5,
         tb_log_name: str = "OnPolicyAlgorithm",
+        eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
-        progress_bar: bool = False,
-    ) -> SelfOnPolicyAlgorithm:
+        env_cfg: str = None,
+    ) -> "OnPolicyAlgorithm":
         iteration = 0
+
+        # total_timesteps, callback = self._setup_learn(
+        #     total_timesteps,
+        #     eval_env,---
+        #     callback,
+        #     eval_freq,---
+        #     n_eval_episodes,----
+        #     eval_log_path,----
+        #     reset_num_timesteps,
+        #     tb_log_name,
+        # )
+
 
         total_timesteps, callback = self._setup_learn(
             total_timesteps,
             callback,
             reset_num_timesteps,
             tb_log_name,
-            progress_bar,
+            False,
         )
+
+        new_cfg_dir = self.logger.get_dir() + "/config.yaml"
+        with open(new_cfg_dir, "w") as outfile:
+            YAML().dump(self.env_cfg, outfile)
 
         callback.on_training_start(locals(), globals())
 
-        assert self.env is not None
-
         while self.num_timesteps < total_timesteps:
-            continue_training = self.collect_rollouts(self.env, callback, self.rollout_buffer, n_rollout_steps=self.n_steps)
 
-            if not continue_training:
+            continue_training = self.collect_rollouts(
+                self.env, callback, self.rollout_buffer, n_rollout_steps=self.n_steps
+            )
+
+            if continue_training is False:
                 break
 
             iteration += 1
             self._update_current_progress_remaining(self.num_timesteps, total_timesteps)
 
             # Display training infos
+            # DEBUG
+            # if log_interval is not None and iteration % log_interval[0] == 0:
             if log_interval is not None and iteration % log_interval == 0:
-                assert self.ep_info_buffer is not None
-                time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
-                fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
+                fps = int(self.num_timesteps / (time.time() - self.start_time))
                 self.logger.record("time/iterations", iteration, exclude="tensorboard")
                 if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:
-                    self.logger.record("rollout/ep_rew_mean", safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer]))
-                    self.logger.record("rollout/ep_len_mean", safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]))
+                    self.logger.record(
+                        "rollout/ep_rew_mean",
+                        safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer]),
+                    )
+                    self.logger.record(
+                        "rollout/ep_len_mean",
+                        safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]),
+                    )
                 self.logger.record("time/fps", fps)
-                self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
-                self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+                self.logger.record(
+                    "time/time_elapsed",
+                    int(time.time() - self.start_time),
+                    exclude="tensorboard",
+                )
+                self.logger.record(
+                    "time/total_timesteps", self.num_timesteps, exclude="tensorboard"
+                )
+                for i in range(self.env.rew_dim - 1):
+                    self.logger.record(
+                        "rewards/{0}".format(self.env.reward_names[i]),
+                        safe_mean(
+                            [
+                                ep_info[self.env.reward_names[i]]
+                                for ep_info in self.ep_info_buffer
+                            ]
+                        ),
+                    )
+
                 self.logger.dump(step=self.num_timesteps)
 
             self.train()
-            
-            # DEBUG - Save policy
+
+            if iteration % 10 == 0 and iteration <= 1000:
+                # update running mean and standard deivation for state normalization
+                self.env.update_rms()
+
+            # DEBUG
+            # if log_interval is not None and iteration % log_interval[0] == 0:
             if log_interval is not None and iteration % log_interval == 0:
                 policy_path = self.logger.get_dir() + "/Policy"
                 os.makedirs(policy_path, exist_ok=True)
@@ -319,7 +354,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 self.env.save_rms(
                     save_dir=self.logger.get_dir() + "/RMS", n_iter=iteration
                 )
-                
+                self.eval(iteration)
 
         callback.on_training_end()
 
@@ -329,4 +364,3 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         state_dicts = ["policy", "policy.optimizer"]
 
         return state_dicts, []
-

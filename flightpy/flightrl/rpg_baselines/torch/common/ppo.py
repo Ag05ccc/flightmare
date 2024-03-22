@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import scipy
 import torch as th
-from gym import spaces
+# from gym import spaces
 from mpl_toolkits.mplot3d import Axes3D
 #
 from stable_baselines3.common.policies import ActorCriticPolicy
@@ -23,6 +23,8 @@ from flightrl.rpg_baselines.torch.common.on_policy_algorithm import \
 from flightrl.rpg_baselines.torch.common.util import plot3d_traj
 from flightrl.rpg_baselines.torch.common.util import traj_rollout
 
+# DEBUG
+from gymnasium import spaces
 
 class PPO(OnPolicyAlgorithm):
     """

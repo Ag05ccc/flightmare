@@ -5,7 +5,7 @@ from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import gym
 import numpy as np
-from gym import spaces
+# from gym import spaces
 from numpy.core.fromnumeric import shape
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env.base_vec_env import (VecEnv,
@@ -15,6 +15,8 @@ from stable_baselines3.common.vec_env.base_vec_env import (VecEnv,
 from stable_baselines3.common.vec_env.util import (copy_obs_dict, dict_to_obs,
                                                    obs_space_info)
 
+# DEBUG
+from gymnasium import spaces
 
 class FlightEnv(object):
     #

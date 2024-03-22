@@ -109,7 +109,11 @@ def test_policy(env, model, render=False):
             # print(obs)
             act, _ = model.predict(obs, deterministic=True)
             obs, rew, done, info = env.step(act)
-
+            # for i in range(15,52,4):
+            #     print(obs["state"][0][i:i+4])
+            # print()
+            # print("--------------------------------")
+        
             #
             env.render(ep_len)
 
@@ -126,15 +130,17 @@ def test_policy(env, model, render=False):
             # cv2.imshow("rgb_img", rgb_img)
             # os.makedirs("./images", exist_ok=True)
             # cv2.imwrite("./images/img_{0:05d}.png".format(frame_id), rgb_img)
-            # cv2.waitKey(100)
+            # cv2.waitKey(10)
 
             # # # ======Depth Image=========
-            # depth_img = np.reshape(env.getDepthImage()[
-            #                        0], (env.img_height, env.img_width))
-            # os.makedirs("./depth", exist_ok=True)
-            # cv2.imwrite("./depth/img_{0:05d}.png".format(frame_id), depth_img.astype(np.uint16))
-            # cv2.imshow("depth", depth_img)
-            # cv2.waitKey(100)
+            
+            depth_img = np.reshape(env.getDepthImage()[0], (env.img_height, env.img_width))
+            depth_img_normalized = (depth_img - depth_img.min()) / (depth_img.max() - depth_img.min()) * 255
+
+            os.makedirs("./depth", exist_ok=True)
+            cv2.imwrite("./depth/img_{0:05d}.png".format(frame_id), depth_img_normalized.astype(np.uint8))
+            cv2.imshow("depth", depth_img)
+            cv2.waitKey(1)
 
             #
             ep_len += 1
