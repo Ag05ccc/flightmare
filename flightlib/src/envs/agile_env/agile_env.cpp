@@ -46,9 +46,7 @@ void AgileEnv::init() {
   dynamics.updateParams(cfg_);
   quad_ptr_->updateDynamics(dynamics);
 
-
-  // define input and output dimension for the environment
-  obs_dim_ = agileenv::kNObs;
+  // obs_dim_ = agileenv::kNObs;
   act_dim_ = agileenv::kNAct;
   rew_dim_ = 0;
   num_detected_obstacles_ = agileenv::kNObstacles;
@@ -56,6 +54,14 @@ void AgileEnv::init() {
   // load parameters
   loadParam(cfg_);
 
+  // define input and output dimension for the environment
+  if (STUDENT_FLAG_){
+    obs_dim_ = 65; //agileenv::kNObs - (agileenv::kNObstacles * agileenv::kNObstaclesVel);
+  }
+  else{
+    obs_dim_ = agileenv::kNObs;
+  }
+  
   // add camera
   if (!configCamera(cfg_)) {
     logger_.error(
@@ -155,14 +161,22 @@ bool AgileEnv::getObs(Ref<Vector<>> obs) {
   world_box sinir  : 4
   TOPLAM           : 91 + 4 
   */
+  if (STUDENT_FLAG_){
+    obs << goal_linear_vel_, ori, quad_state_.p, quad_state_.v, quad_state_.w, obstacle_obs,
+                                                                      world_box_[2] - quad_state_.x(QS::POSY), 
+                                                                      world_box_[3] - quad_state_.x(QS::POSY),
+                                                                      world_box_[4] - quad_state_.x(QS::POSZ),
+                                                                      world_box_[5] - quad_state_.x(QS::POSZ);
 
-  obs << goal_linear_vel_, ori, quad_state_.p, quad_state_.v, quad_state_.w, obstacle_obs, obstacle_vel_obs,
-                                                                    world_box_[2] - quad_state_.x(QS::POSY), 
-                                                                    world_box_[3] - quad_state_.x(QS::POSY),
-                                                                    world_box_[4] - quad_state_.x(QS::POSZ),
-                                                                    world_box_[5] - quad_state_.x(QS::POSZ);
-  // obs << goal_linear_vel_, ori, quad_state_.v, obstacle_obs;
+  }else{
+    obs << goal_linear_vel_, ori, quad_state_.p, quad_state_.v, quad_state_.w, obstacle_obs, 
+                                                                      world_box_[2] - quad_state_.x(QS::POSY), 
+                                                                      world_box_[3] - quad_state_.x(QS::POSY),
+                                                                      world_box_[4] - quad_state_.x(QS::POSZ),
+                                                                      world_box_[5] - quad_state_.x(QS::POSZ),
+                                                                      obstacle_vel_obs;
 
+  }
   return true;
 }
 
@@ -601,6 +615,8 @@ bool AgileEnv::loadParam(const YAML::Node &cfg) {
     std::vector<Scalar> goal_position_vec = cfg["environment"]["goal_position"].as<std::vector<Scalar>>();
     goal_position_ = Vector<3>(goal_position_vec.data());
     DEBUG_FLAG_ = cfg["environment"]["debug_flag"].as<bool>();
+    
+    STUDENT_FLAG_ = cfg["environment"]["student_flag"].as<bool>();
   }
 
   if (cfg["simulation"]) {
