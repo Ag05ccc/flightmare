@@ -190,6 +190,7 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
   // make sure to reset the collision penalty
   relative_pos_norm_.clear();
   relative_pos_vector_.clear();
+  relative_dist_norm_.clear();
   obstacle_radius_.clear();
 
   //
@@ -220,25 +221,69 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
       
     // compute relative position vector
     Vector<3> delta_pos = dynamic_objects_[i]->getPos() - quad_state_.p;
-    relative_pos.push_back(delta_pos);
+    // DEBUG
+    // relative_pos.push_back(delta_pos);
 
     // compute relative distance
     Scalar obstacle_dist = delta_pos.norm();
     if (obstacle_dist > max_detection_range_){
       obstacle_dist = max_detection_range_;
     }
-    relative_pos_norm_.push_back(obstacle_dist);
+    // relative_pos_norm_.push_back(obstacle_dist);
 
     // store the obstacle radius
     Scalar obs_radius = dynamic_objects_[i]->getScale()[0] / 2;
-    obstacle_radius_.push_back(obs_radius);
+    // obstacle_radius_.push_back(obs_radius);
+
+    // -------------------------------------------------
+    // Dot Product
+    Scalar obstacle_dist_dot = (quad_state_.v.dot(delta_pos));
+    // Angle Between Velocity and RelativePosition Vector
+    double magnitude_v = sqrt(pow(quad_state_.v[0],2) + pow(quad_state_.v[1],2) + pow(quad_state_.v[2],2));
+    double magnitude_p = sqrt(pow(delta_pos[0],2) + pow(delta_pos[1],2) + pow(delta_pos[2],2));
+    Scalar magnitudes = magnitude_v * magnitude_p;
+    Scalar direction_angle = std::acos(obstacle_dist_dot / magnitudes);
+
+
+
+
+
+    // Normalize distance with velocity vector NEW-02.05.24
+    Vector<3>normalized_distance;
+    for (int i = 0; i < 3; i++) {
+      if (quad_state_.v[i] != 0) {  // Check to avoid division by zero
+          normalized_distance[i] = delta_pos[i] / quad_state_.v[i];
+      } else {
+          normalized_distance[i] = 0;  // or handle as error/undefined
+      }
+    }
+    Scalar normalized_dist_norm = normalized_distance.norm();
+
+
+
+
+
+
+    // if (obstacle_dist_dot>0 && direction_angle<65.0){
+    if (true){
+      relative_pos.push_back(delta_pos);
+      // KONTROL delta_pos dogru hesaplaniyor mu ?
+      relative_pos_vector_.push_back(delta_pos);
+      relative_pos_norm_.push_back(obstacle_dist);
+      relative_dist_norm_.push_back(normalized_dist_norm);
+      //relative_pos_dot_.push_back(obstacle_dist_dot);
+      obstacle_radius_.push_back(obs_radius);
+    }
+    // -------------------------------------------------
 
     // Check collision 
     if (obstacle_dist < obs_radius) {
       is_collision_ = true;
+      if (num_env_==1){
+        std::cout << " COLLISION " << std::endl;
+      }
     }
   }
-  
   //  ----------------------------------------------- Static -----------------------------------------------
   // compute relatiev distance to static obstacles
   for (int i = 0; i < (int)static_objects_.size(); i++) {
@@ -257,7 +302,6 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
     double magnitude_p = sqrt(pow(delta_pos[0],2) + pow(delta_pos[1],2) + pow(delta_pos[2],2));
     Scalar magnitudes = magnitude_v * magnitude_p;
     Scalar direction_angle = std::acos(obstacle_dist_dot / magnitudes);
-    
 
     // store the obstacle radius
     Scalar obs_radius = static_objects_[i]->getScale()[0] / 2;
@@ -266,13 +310,38 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
       obstacle_dist = max_detection_range_;
     }
     
-    if (obstacle_dist_dot>0 && direction_angle<35.0){
-    // if (true){
+
+
+
+    // Normalize distance with velocity vector NEW-02.05.24
+    Vector<3>normalized_distance;
+    for (int i = 0; i < 3; i++) {
+      if (quad_state_.v[i] != 0) {  // Check to avoid division by zero
+          normalized_distance[i] = delta_pos[i] / quad_state_.v[i];
+      } else {
+          normalized_distance[i] = 0;  // or handle as error/undefined
+      }
+    }
+    Scalar normalized_dist_norm = normalized_distance.norm();
+
+
+
+
+
+
+
+
+
+
+    // if (obstacle_dist_dot>0 && direction_angle<65.0){
+    if (true){
       relative_pos.push_back(delta_pos);
 
       relative_pos_vector_.push_back(delta_pos);
       relative_pos_norm_.push_back(obstacle_dist);
+      relative_dist_norm_.push_back(normalized_dist_norm);
       //relative_pos_dot_.push_back(obstacle_dist_dot);
+      
 
       obstacle_radius_.push_back(obs_radius);
 
@@ -282,6 +351,9 @@ bool AgileEnv::getObstacleState(Ref<Vector<>> obs_state, Ref<Vector<>> obstacle_
 
     if (obstacle_dist < obs_radius) {
       is_collision_ = true;
+      if (num_env_==1){
+        std::cout << " COLLISION " << std::endl;
+      }
     }
   }
   
@@ -401,11 +473,12 @@ bool AgileEnv::simDynamicObstacles(const Scalar dt) {
 bool AgileEnv::computeReward(Ref<Vector<>> reward) {
   // ---------------------- reward function design
   // - compute collision penalty
+  Scalar progress_reward = 0.0;
   Scalar collision_penalty = 0.0;
-  // Scalar move_reward = 0.0;
   Scalar relative_dist = 0.0;
   size_t idx = 0;
   for (size_t sort_idx : sort_indexes(relative_pos_norm_)) {
+    // std::cout << "idx: " << idx << std::endl;
     if (idx >= agileenv::kNObstacles) break;
 
     // EKSI DEGERLERI SIFIRA CEKIYOR ???
@@ -415,13 +488,13 @@ bool AgileEnv::computeReward(Ref<Vector<>> reward) {
     //     ? relative_pos_norm_[sort_idx]
     //     : max_detection_range_;
     
-    if (DEBUG_FLAG_){
+    if (DEBUG_FLAG_ && idx<10){
     std::cout << idx 
-              << " - obstacle : " << relative_pos_vector_[sort_idx][0]
+              << "-obs: " << relative_pos_vector_[sort_idx][0]
               << " "<< relative_pos_vector_[sort_idx][1]
               << " " << relative_pos_vector_[sort_idx][2]
               << "  -  r: " << obstacle_radius_[sort_idx]
-              << " " << relative_pos_norm_[sort_idx]
+              << "  -  d: " << relative_pos_norm_[sort_idx]
               << std::endl;
     }
     relative_dist = 0.0;
@@ -441,14 +514,20 @@ bool AgileEnv::computeReward(Ref<Vector<>> reward) {
     }
 
 
-    // dist_margin_ = 1.0;
+    // ------- Collision -------
+
     // 5 DEGISIKLIK
-    if (relative_pos_norm_[sort_idx] > 0.0f &&  relative_pos_norm_[sort_idx] <= obstacle_radius_[sort_idx] + dist_margin_) {
-      // compute distance penalty
-      collision_penalty += collision_coeff_ * std::exp(-1.0 * relative_dist);
+    // if (relative_pos_norm_[sort_idx] > 0.0f &&  relative_pos_norm_[sort_idx] <= obstacle_radius_[sort_idx] + dist_margin_) {
+    if (relative_pos_norm_[sort_idx] <= obstacle_radius_[sort_idx] + dist_margin_) {
+    // if (relative_dist_norm_[sort_idx] <= obstacle_radius_[sort_idx] + dist_margin_ && idx <= agileenv::kNObstacles) {
+      // collision_penalty += collision_coeff_ * std::exp(-1.0 * relative_dist);
+      // collision_penalty += collision_coeff_ * std::exp(-1.0 * (relative_dist + obstacle_radius_[sort_idx] + 0.1));
+      // collision_penalty += collision_coeff_ * ((1/relative_dist)+ std::exp(-1.0 * relative_dist));
+      collision_penalty += collision_coeff_ * (2.0f/(relative_dist - obstacle_radius_[sort_idx] - 0.1));
       // move_reward = -0.001 * (quad_state_.p(QS::POSX) - quad_old_state_.p(QS::POSX));
+
       if (DEBUG_FLAG_){
-      std::cout << " relative_dist: " << relative_dist << std::endl;
+        std::cout << " relative_dist: " << relative_dist << std::endl;
       }
     }
     else{
@@ -456,44 +535,75 @@ bool AgileEnv::computeReward(Ref<Vector<>> reward) {
       // move_reward = 0.01 * (quad_state_.p(QS::POSX) - quad_old_state_.p(QS::POSX));
     }
 
+    // ------- Progress -------
+    // if (relative_pos_vector_[sort_idx][0] < 0.0) {
+    //   progress_reward += progress_coeff;
+    // }
+
     idx += 1;
   }
 
-  // - tracking a constant linear velocity
+  // ------- Position -------
+  // Scalar position_reward =  position_coeff_ * (quad_state_.p(QS::POSX) -s quad_old_state_.p(QS::POSX));
+  // Scalar position_reward =  position_coeff_ * (quad_state_.p(QS::POSX));
+  Scalar position_reward =  position_coeff_ * std::log(1.0 + std::abs(quad_state_.p(QS::POSX)));
+  
+
+  // ------- Velocity -------
   // Scalar lin_vel_reward =
   //   vel_coeff_ * (quad_state_.v - goal_linear_vel_).norm();
 
-  // SADECE X EKSENI
   Vector<3> velocity_error = quad_state_.v - goal_linear_vel_;
-  if (abs(velocity_error[0])<1.0){
-    velocity_error[0] *= 0.5;
+  // velocity_error[0] = velocity_error[0] / goal_linear_vel_[0];
+  // velocity_error[1] = velocity_error[1] / goal_linear_vel_[0];
+  // velocity_error[2] = velocity_error[2] / goal_linear_vel_[0];
+  Scalar lin_vel_reward = vel_coeff_ * ((velocity_error).cwiseProduct(linear_vel_mask_)).norm();
+
+  // Velocity-Free Reward
+  Vector<3> velocity_error_3 = (quad_state_.v);
+  velocity_error_3[0] = std::log(1.0 + std::abs(velocity_error_3[0]));
+  velocity_error_3[1] = std::log(1.0 + std::abs(velocity_error_3[1]));
+  velocity_error_3[2] = std::log(1.0 + std::abs(velocity_error_3[2]));
+  Scalar lin_vel_reward_3 = (-vel_coeff_) * ((velocity_error_3).cwiseProduct(linear_vel_mask_)).norm();
+  
+  if (velocity_error_3[0]<0){
+    lin_vel_reward_3 = -lin_vel_reward_3;
   }
-  Scalar lin_vel_reward =
-    vel_coeff_ * ((velocity_error).cwiseProduct(linear_vel_mask_)).norm();
+  
 
-  // DEFAULT
-  // Scalar lin_vel_reward =
-  //   vel_coeff_ * ((quad_state_.v - goal_linear_vel_).cwiseProduct(linear_vel_mask_)).norm();
+  // ------- ACCELERATION -------
+  Vector<3> acceleration_error = (quad_state_.v - linear_vel_old_) / sim_dt_;
+  linear_vel_old_ = quad_state_.v;
+  // Yavasliyorsa odullendır hızlanıyorsa X ekseninde SADECE
+  // Scalar acc_err_sum = (acceleration_error[0] + acceleration_error[1] + acceleration_error[2]);
+  // Scalar acceleration_reward = acceleration_coeff_ * acceleration_error.norm();
+  Scalar acceleration_reward = acceleration_coeff_ * std::log(1.0 + acceleration_error.norm());
+  
 
-  // - angular velocity penalty, to avoid oscillations
+
+  // ------- JERK -------
+  Vector<3> jerk_error = (acceleration_error - acceleration_old_) / sim_dt_;
+  acceleration_old_ = acceleration_error;
+  Scalar jerk_reward = jerk_coeff_ * std::log(1.0 + jerk_error.norm());
+  // Scalar jerk_reward = jerk_coeff_ * jerk_error.norm();
+
+  // ------- ANGULAR VEL -------
   const Scalar ang_vel_penalty = angular_vel_coeff_ * quad_state_.w.norm();
 
-  // Scalar survive_rew_temp = survive_rew_;
-  // if (is_collision_){
-  //   survive_rew_temp = 0.0;
-  // }
-  
+  // ------- TOTAL_REWARD -------
   //  change progress reward as survive reward
   const Scalar total_reward =
-    lin_vel_reward + collision_penalty + ang_vel_penalty + survive_rew_;// + move_reward;
-    // lin_vel_reward + collision_penalty + ang_vel_penalty + survive_rew_;// + distance_penalty;
+    (position_reward * (lin_vel_reward_3 + acceleration_reward + jerk_reward)) + ang_vel_penalty + collision_penalty + survive_rew_;
 
   if (DEBUG_FLAG_){
-
-    std::cout << "lin: " << lin_vel_reward
-              << " coll: " << collision_penalty
+    std::cout << "total: " << total_reward
+              << " pos: " << position_reward
+              << " lin: " << lin_vel_reward_3
+              << " acc: " << acceleration_reward
+              << " jerk: " << jerk_reward
               << " ang: " << ang_vel_penalty
-              << " total: " << total_reward
+              << " coll: " << collision_penalty
+              // << " prog: " << progress_reward
               << " x: " << quad_state_.v[0]
               << " y: " << quad_state_.v[1]
               << " z: " << quad_state_.v[2]
@@ -608,6 +718,10 @@ bool AgileEnv::loadParam(const YAML::Node &cfg) {
     std::vector<Scalar> goal_vel_vec =
       cfg["environment"]["goal_vel"].as<std::vector<Scalar>>();
     goal_linear_vel_ = Vector<3>(goal_vel_vec.data());
+
+    std::vector<Scalar> linear_vel_vec =
+      cfg["environment"]["linear_vel_mask"].as<std::vector<Scalar>>();
+    linear_vel_mask_ = Vector<3>(linear_vel_vec.data());
     max_detection_range_ =
       cfg["environment"]["max_detection_range"].as<Scalar>();
 
@@ -641,6 +755,10 @@ bool AgileEnv::loadParam(const YAML::Node &cfg) {
 
     // DEBUG
     goal_position_coeff_ = cfg["rewards"]["goal_position_coeff_"].as<Scalar>();
+    acceleration_coeff_ = cfg["rewards"]["acceleration_coeff"].as<Scalar>();
+    position_coeff_ = cfg["rewards"]["position_coeff"].as<Scalar>();
+    jerk_coeff_ = cfg["rewards"]["jerk_coeff"].as<Scalar>();
+    progress_coeff = cfg["rewards"]["progress_coeff"].as<Scalar>();
     dist_margin_ = cfg["rewards"]["dist_margin"].as<Scalar>();
   } else {
     logger_.error("Cannot load [rewards] parameters");
